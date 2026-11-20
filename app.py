@@ -1950,16 +1950,6 @@ def render_carrito_completo() -> None:
                 key="direccion_orden_carro",
             )
 
-        st.markdown(
-            (
-                '<div class="cart-sort-caption">'
-                "La estructura de la tabla es fija; solo puede "
-                "cambiarse el orden de las filas."
-                "</div>"
-            ),
-            unsafe_allow_html=True,
-        )
-
         def clave_orden_carro(
             elemento: tuple[str, dict[str, Any]],
         ) -> Any:
@@ -2196,7 +2186,7 @@ def render_carrito_completo() -> None:
             # Escritorio: botones apilados como antes.
             with st.container(key="acciones_compra_desktop"):
                 st.download_button(
-                    "Descargar compra (.csv)",
+                    "Descargar compra",
                     data=csv_compra,
                     file_name="Compra_Tienda_de_Magic_UC.csv",
                     mime="text/csv",
