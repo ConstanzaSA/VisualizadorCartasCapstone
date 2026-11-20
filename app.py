@@ -404,6 +404,22 @@ def completar_inventario(inventario: list[dict[str, Any]]) -> list[dict[str, Any
     return resultado
 
 
+def idioma_visible(idioma: str) -> str:
+    return {"es": "Español", "en": "Inglés"}.get(idioma.casefold(), idioma)
+
+
+def almacenamiento_carta(carta: dict[str, Any]) -> str:
+    if carta.get("ubicacion"):
+        return carta["ubicacion"]
+
+    color = color_catalogo(carta)
+    if color == "Sin datos de color":
+        return "Por definir"
+    if color in ("Multicolor", "Incoloro"):
+        return "Multicolor / Incoloro"
+    return color
+
+
 def preparar_resultado(
     carta: dict[str, Any],
     nombre_solicitado: str | None = None,
@@ -425,8 +441,8 @@ def preparar_resultado(
         "Imagen": carta.get("imagen_url", ""),
         "Carta": nombre_solicitado or carta.get("nombre", ""),
         "Tipo": carta.get("tipo", ""),
-        "Ubicación": carta.get("ubicacion", ""),
-        "Idioma": carta.get("idioma", ""),
+        "Almacenamiento": almacenamiento_carta(carta),
+        "Idioma": idioma_visible(carta.get("idioma", "")),
         "Cantidad disponible": int(carta.get("cantidad") or 0),
         "Edición": carta.get("set_name", ""),
         "Acabado": carta.get("finish", "nonfoil"),
@@ -745,8 +761,8 @@ def dataframe_compra() -> pd.DataFrame:
                 "Carta": item.get("Carta", ""),
                 "Cantidad": cantidad,
                 "Edición": item.get("Edición", ""),
-                "Idioma": item.get("Idioma", ""),
-                "Ubicación": item.get("Ubicación", ""),
+                "Idioma": idioma_visible(item.get("Idioma", "")),
+                "Almacenamiento": item.get("Almacenamiento") or item.get("Ubicación") or "Por definir",
                 "Acabado": item.get("Acabado", ""),
                 "Precio unitario CLP": precio_unitario,
                 "Subtotal CLP": subtotal,

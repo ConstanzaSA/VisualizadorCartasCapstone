@@ -18,7 +18,7 @@ COLUMNAS = {
     "tipo": ("tipo", "type line"),
     "imagen_url": ("imagen", "imagen url", "image url"),
     "precio_ck": ("precio ck", "precio ck usd", "ck usd", "price ck"),
-    "ubicacion": ("ubicación", "ubicacion", "location"),
+    "ubicacion": ("almacenamiento", "ubicación", "ubicacion", "location"),
 }
 
 
