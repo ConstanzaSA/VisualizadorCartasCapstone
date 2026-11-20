@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import difflib
 import hashlib
+import logging
 import re
 import unicodedata
 from pathlib import Path
@@ -11,6 +12,7 @@ from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
+from ijson import JSONError
 
 # El componente streamlit-searchbox permite actualizar las sugerencias
 # mientras la persona escribe, sin tener que presionar Enter.
@@ -24,6 +26,7 @@ except ImportError:
 # Las funciones básicas existen en todas las versiones del proyecto.
 from Funciones_Cartas import Comparar_cartas
 from inventario_excel import cargar_inventario
+from precios_mtgjson import ACABADOS, cargar_precios_ck, cargar_uuids_edicion
 from scryfall_catalogo import completar_carta, consultar_impresiones, identificador_scryfall
 
 from requests import RequestException
@@ -228,7 +231,7 @@ def precio_usd_texto(valor: Any) -> str:
         2.79 -> $2,79
     """
     if valor is None or pd.isna(valor):
-        return "Sin precio"
+        return "Precio por confirmar"
 
     return f"${float(valor):,.2f}".replace(",", "X").replace(".", ",").replace(
         "X",
@@ -238,7 +241,7 @@ def precio_usd_texto(valor: Any) -> str:
 
 def precio_clp_texto(valor: Any) -> str:
     if valor is None or pd.isna(valor):
-        return "Sin precio"
+        return "Precio por confirmar"
     return f"${float(valor):,.0f}".replace(",", ".")
 
 
@@ -373,6 +376,24 @@ def consultar_impresiones_compartidas(identificadores: tuple[tuple[str, ...], ..
     return consultar_impresiones(identificadores)
 
 
+@st.cache_resource(ttl="1h", show_spinner=False)
+def precios_ck_compartidos() -> dict[str, dict[str, float]]:
+    try:
+        return cargar_precios_ck()
+    except (RequestException, OSError, ValueError, JSONError):
+        logging.getLogger(__name__).warning("No se pudo cargar el archivo de precios de MTGJSON.", exc_info=True)
+        return {}
+
+
+@st.cache_resource(ttl="1h", max_entries=256, show_spinner=False)
+def uuids_mtgjson_compartidos(edicion: str) -> dict[str, str]:
+    try:
+        return cargar_uuids_edicion(edicion)
+    except (RequestException, OSError, ValueError, KeyError):
+        logging.getLogger(__name__).warning("No se pudo cargar la edición %s de MTGJSON.", edicion, exc_info=True)
+        return {}
+
+
 def completar_inventario(inventario: list[dict[str, Any]]) -> list[dict[str, Any]]:
     identificadores = sorted({identificador_scryfall(carta) for carta in inventario} - {()})
     impresiones = {}
@@ -383,13 +404,27 @@ def completar_inventario(inventario: list[dict[str, Any]]) -> list[dict[str, Any
         except (RequestException, ValueError, KeyError, TypeError):
             break
 
+    ediciones = {
+        impresion["set"]
+        for carta in inventario
+        if carta["finish"] in ACABADOS
+        if (impresion := impresiones.get(identificador_scryfall(carta)))
+    }
+    precios = precios_ck_compartidos() if ediciones else {}
+    uuids = {edicion: uuids_mtgjson_compartidos(edicion) for edicion in sorted(ediciones)} if precios else {}
+
     resultado = []
     pendientes = 0
     for carta in inventario:
         clave = identificador_scryfall(carta)
         impresion = impresiones.get(clave)
         if impresion:
-            resultado.append(completar_carta(carta, impresion))
+            completada = completar_carta(carta, impresion)
+            uuid = uuids.get(impresion["set"], {}).get(impresion["id"].casefold())
+            precio = precios.get(uuid, {}).get(ACABADOS.get(carta["finish"]))
+            if precio is not None:
+                completada["precio_ck"] = precio
+            resultado.append(completada)
             continue
         if clave:
             pendientes += 1

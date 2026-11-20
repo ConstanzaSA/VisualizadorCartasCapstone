@@ -1,4 +1,3 @@
-Set,Collector Number,Cantidad,Acabado,Idioma,Precio CK USD
-cmm,703,3,foil,en,37.99
-cmm,703,0,nonfoil,en,12.99
-m11,149,2,nonfoil,en,1.25
+Set,Collector Number,Cantidad,Acabado,Idioma
+cmm,703,3,foil,en
+m11,149,2,nonfoil,en
