@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import difflib
 import hashlib
-import io
 import re
 import unicodedata
 from pathlib import Path
@@ -770,42 +769,6 @@ def dataframe_compra() -> pd.DataFrame:
         )
 
     return pd.DataFrame(filas)
-
-
-def excel_compra() -> bytes:
-    """Genera el Excel de compra con los datos del carrito."""
-    df = dataframe_compra()
-
-    salida = io.BytesIO()
-
-    # openpyxl se incorpora mediante requirements.txt.
-    with pd.ExcelWriter(salida, engine="openpyxl") as writer:
-        df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Compra",
-        )
-
-        hoja = writer.sheets["Compra"]
-        hoja.freeze_panes = "A2"
-        hoja.auto_filter.ref = hoja.dimensions
-
-        anchos = {
-            "A": 32,
-            "B": 12,
-            "C": 28,
-            "D": 22,
-            "E": 25,
-            "F": 16,
-            "G": 20,
-            "H": 18,
-        }
-
-        for columna, ancho in anchos.items():
-            hoja.column_dimensions[columna].width = ancho
-
-    salida.seek(0)
-    return salida.getvalue()
 
 
 # ============================================================
@@ -2197,13 +2160,10 @@ def render_carrito_completo() -> None:
             # Escritorio: botones apilados como antes.
             with st.container(key="acciones_compra_desktop"):
                 st.download_button(
-                    "Descargar compra",
-                    data=excel_compra(),
-                    file_name="Compra_Tienda_de_Magic_UC.xlsx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
+                    "Descargar compra (.csv)",
+                    data=csv_compra,
+                    file_name="Compra_Tienda_de_Magic_UC.csv",
+                    mime="text/csv",
                     use_container_width=True,
                 )
 
@@ -2230,13 +2190,10 @@ def render_carrito_completo() -> None:
 
                 with accion_descargar:
                     st.download_button(
-                        "Descargar",
-                        data=excel_compra(),
-                        file_name="Compra_Tienda_de_Magic_UC.xlsx",
-                        mime=(
-                            "application/vnd.openxmlformats-officedocument."
-                            "spreadsheetml.sheet"
-                        ),
+                        "Descargar CSV",
+                        data=csv_compra,
+                        file_name="Compra_Tienda_de_Magic_UC.csv",
+                        mime="text/csv",
                         use_container_width=True,
                     )
 
