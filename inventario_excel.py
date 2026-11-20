@@ -10,7 +10,7 @@ COLUMNAS = {
     "nombre": ("nombre", "carta", "name", "card name", "nombre de la carta"),
     "cantidad": ("cantidad", "quantity", "count", "stock", "qty"),
     "set": ("set", "set code", "código de edición"),
-    "set_name": ("edición", "set name", "expansión"),
+    "set_name": ("edición", "edicion", "set name", "expansión"),
     "collector_number": ("collector number", "número de colección", "número de coleccionista"),
     "scryfall_id": ("scryfall id",),
     "finish": ("acabado", "finish", "foil"),
@@ -18,13 +18,23 @@ COLUMNAS = {
     "tipo": ("tipo", "type line"),
     "imagen_url": ("imagen", "imagen url", "image url"),
     "precio_ck": ("precio ck", "precio ck usd", "ck usd", "price ck"),
-    "ubicacion": ("ubicación", "location"),
+    "ubicacion": ("ubicación", "ubicacion", "location"),
 }
 
 
 def cargar_inventario_excel(contenido: bytes) -> list[dict]:
     """Lee el stock de la primera hoja y suma las filas de una misma variante."""
-    tabla = pd.read_excel(BytesIO(contenido), engine="openpyxl", dtype=str, keep_default_na=False)
+    return cargar_inventario(contenido, ".xlsx")
+
+
+def cargar_inventario(contenido: bytes, formato: str) -> list[dict]:
+    """Lee el inventario publicado y agrupa las copias de una misma variante."""
+    if formato == ".csv":
+        tabla = pd.read_csv(BytesIO(contenido), encoding="utf-8-sig", dtype=str, keep_default_na=False)
+    elif formato == ".xlsx":
+        tabla = pd.read_excel(BytesIO(contenido), engine="openpyxl", dtype=str, keep_default_na=False)
+    else:
+        raise ValueError(f"Formato de inventario no admitido: {formato}")
     tabla.columns = [
         Normalizar_nombre(str(columna).replace("_", " ")) for columna in tabla.columns
     ]
@@ -35,15 +45,20 @@ def cargar_inventario_excel(contenido: bytes) -> list[dict]:
         )
         for campo, aliases in COLUMNAS.items()
     }
-    if columnas["nombre"] is None:
-        raise ValueError("La primera hoja debe tener una columna Nombre, Carta o Name.")
+    if not (
+        columnas["nombre"] or columnas["scryfall_id"]
+        or (columnas["set"] and columnas["collector_number"])
+    ):
+        raise ValueError("Incluye Nombre, Scryfall ID o las columnas Set y Collector Number.")
 
     cartas = {}
     for numero, fila in enumerate(tabla.to_dict("records"), start=2):
         carta = {campo: fila.get(columna, "").strip() for campo, columna in columnas.items()}
-        nombre = Normalizar_nombre(carta["nombre"])
-        if not nombre:
+        if not any(carta.values()):
             continue
+        nombre = Normalizar_nombre(carta["nombre"])
+        if not (nombre or carta["scryfall_id"] or (carta["set"] and carta["collector_number"])):
+            raise ValueError(f"Fila {numero}: falta el nombre o la identificación de la carta.")
 
         try:
             cantidad = float(carta["cantidad"] or "1")
@@ -71,7 +86,6 @@ def cargar_inventario_excel(contenido: bytes) -> list[dict]:
         carta.update(
             nombre_normalizado=nombre,
             cantidad=int(cantidad),
-            set_name=carta["set_name"] or carta["set"],
             finish=acabados.get(acabado, acabado),
             precio_ck=precio if precio != "" else None,
         )

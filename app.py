@@ -24,7 +24,10 @@ except ImportError:
 
 # Las funciones básicas existen en todas las versiones del proyecto.
 from Funciones_Cartas import Comparar_cartas
-from inventario_excel import cargar_inventario_excel
+from inventario_excel import cargar_inventario
+from scryfall_catalogo import completar_carta, consultar_impresiones, identificador_scryfall
+
+from requests import RequestException
 
 # Compatibilidad: si GitHub conserva temporalmente una versión anterior de
 # Funciones_Cartas.py, la aplicación sigue iniciando y define localmente las
@@ -138,7 +141,8 @@ except ImportError:
 # CONFIGURACIÓN GENERAL
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent
-ARCHIVO_INVENTARIO = BASE_DIR / "Datos" / "inventario.xlsx"
+ARCHIVO_CSV = BASE_DIR / "Datos" / "inventario.csv"
+ARCHIVO_EXCEL = ARCHIVO_CSV.with_suffix(".xlsx")
 LOGO_PATH = BASE_DIR / "assets" / "logo_magic.png"
 NUMERO_WHATSAPP = "56964463010"
 
@@ -198,7 +202,7 @@ COLOR_TEXTO_SECUNDARIO = "#C5BECC"
 COLOR_BLANCO = "#FFFFFF"
 
 # Conversión fija usada por la tienda.
-VALOR_CK_CLP = 700
+VALOR_CK_CLP = 850
 
 st.set_page_config(
     page_title="Tienda de Magic UC",
@@ -361,8 +365,43 @@ def parsear_lista_cartas(texto: str) -> list[dict[str, Any]]:
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
-def cargar_inventario_compartido(contenido: bytes) -> list[dict[str, Any]]:
-    return cargar_inventario_excel(contenido)
+def cargar_inventario_compartido(contenido: bytes, formato: str) -> list[dict[str, Any]]:
+    return cargar_inventario(contenido, formato)
+
+
+@st.cache_data(show_spinner=False, ttl="24h", max_entries=128)
+def consultar_impresiones_compartidas(identificadores: tuple[tuple[str, ...], ...]) -> dict:
+    return consultar_impresiones(identificadores)
+
+
+def completar_inventario(inventario: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    identificadores = sorted({identificador_scryfall(carta) for carta in inventario} - {()})
+    impresiones = {}
+    for inicio in range(0, len(identificadores), 75):
+        lote = tuple(identificadores[inicio:inicio + 75])
+        try:
+            impresiones.update(consultar_impresiones_compartidas(lote))
+        except (RequestException, ValueError, KeyError, TypeError):
+            break
+
+    resultado = []
+    pendientes = 0
+    for carta in inventario:
+        clave = identificador_scryfall(carta)
+        impresion = impresiones.get(clave)
+        if impresion:
+            resultado.append(completar_carta(carta, impresion))
+            continue
+        if clave:
+            pendientes += 1
+        resultado.append({
+            **carta,
+            "nombre": carta["nombre"] or " ".join(clave[1:]),
+            "set_name": carta["set_name"] or carta["set"],
+        })
+    if pendientes:
+        st.warning(f"Scryfall no devolvió los datos de {pendientes} entradas del inventario.")
+    return resultado
 
 
 def preparar_resultado(
@@ -555,7 +594,7 @@ def selector_botones(
     Crea pestañas visuales usando botones para poder cambiar su estado
     desde Python, algo que st.tabs no permite controlar directamente.
     """
-    if clave not in st.session_state:
+    if st.session_state.get(clave) not in opciones:
         st.session_state[clave] = predeterminado
 
     # Contenedor identificable para controlar el comportamiento responsive.
@@ -605,31 +644,6 @@ def tarjeta_metrica(
         "</div>"
     )
     st.markdown(html, unsafe_allow_html=True)
-
-
-def tarjeta_advertencia(
-    texto: str,
-    clase_extra: str = "",
-) -> None:
-    """
-    Muestra un aviso para la compra.
-
-    Se generan copias responsive: una para la columna derecha de escritorio
-    y otra para la sección superior de teléfono.
-    """
-    clases = "stock-warning-card"
-
-    if clase_extra:
-        clases += f" {clase_extra}"
-
-    st.markdown(
-        (
-            f'<div class="{clases}">'
-            f'<div class="stock-warning-text">{texto}</div>'
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
 
 
 def agregar_al_carro(fila: dict[str, Any]) -> None:
@@ -839,64 +853,12 @@ st.markdown(
             overflow: hidden;
         }}
 
-        .hero-title-row {{
-            display: flex;
-            align-items: center;
-            gap: 0.45rem;
-            min-width: 0;
-            outline: none;
-        }}
-
         .buscador-hero h1 {{
             margin: 0;
             color: {COLOR_BLANCO};
             font-size: clamp(2rem, 4vw, 3.2rem);
             line-height: 1.05;
             font-weight: 850;
-        }}
-
-        /*
-        Actualización discreta del catálogo.
-
-        El símbolo ⟳ aparece al pasar el mouse sobre el título. El icono
-        automático de enlace de Streamlit se oculta para que solo quede
-        visible el control de actualización.
-        */
-        .hero-refresh {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 1.75rem;
-            height: 1.75rem;
-            flex: 0 0 1.75rem;
-            border-radius: 50%;
-            color: {COLOR_TEXTO_SECUNDARIO};
-            text-decoration: none !important;
-            font-size: 1.12rem;
-            font-weight: 800;
-            line-height: 1;
-            opacity: 0;
-            transform: translateX(-5px);
-            pointer-events: none;
-            transition:
-                opacity 140ms ease,
-                transform 140ms ease,
-                color 140ms ease,
-                background-color 140ms ease;
-        }}
-
-        .hero-title-row:hover .hero-refresh,
-        .hero-title-row:focus-within .hero-refresh,
-        .hero-refresh:focus-visible {{
-            opacity: 0.68;
-            transform: translateX(0);
-            pointer-events: auto;
-        }}
-
-        .hero-refresh:hover {{
-            opacity: 1 !important;
-            color: #D4A7FF;
-            background: rgba(255, 255, 255, 0.08);
         }}
 
         /* Oculta solamente los enlaces automáticos internos de encabezado. */
@@ -984,25 +946,6 @@ st.markdown(
         El fondo es rojo oscuro y el mensaje utiliza rojo brillante para
         llamar la atención sin confundirse con los indicadores normales.
         */
-        .stock-warning-card {{
-            margin-bottom: 0.75rem;
-            padding: 1rem 1.05rem;
-            border: 1px solid rgba(255, 82, 82, 0.52);
-            border-left: 7px solid #FF5252;
-            border-radius: 16px;
-            background: #2B1519;
-            box-shadow: 0 6px 18px rgba(255, 82, 82, 0.10);
-        }}
-
-        .stock-warning-text {{
-            color: #FF6B6B;
-            font-size: 1.02rem;
-            line-height: 1.35;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 0.015em;
-        }}
-
         /*
         Orden responsive de los indicadores.
 
@@ -1024,15 +967,6 @@ st.markdown(
 
         .st-key-mobile_info_row {{
             width: 100% !important;
-        }}
-
-        .st-key-mobile_info_row [data-testid="stHorizontalBlock"] {{
-            width: 100% !important;
-            gap: 0.6rem !important;
-        }}
-
-        .st-key-mobile_info_row [data-testid="stColumn"] {{
-            min-width: 0 !important;
         }}
 
 
@@ -1580,12 +1514,12 @@ st.markdown(
 
         @media (max-width: 900px) {{
 
-            /* Mantener Buscar cartas | Lista de cartas | CARRITO
+            /* Mantener las cuatro pestañas en una fila
                horizontalmente en teléfono. */
             .st-key-vista_principal_navigation
             [data-testid="stHorizontalBlock"] {{
                 display: grid !important;
-                grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+                grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
                 width: 100% !important;
                 gap: 0.45rem !important;
             }}
@@ -1612,50 +1546,6 @@ st.markdown(
                 font-size: 0.76rem !important;
             }}
 
-            .st-key-mobile_info_row [data-testid="stHorizontalBlock"] {{
-                display: grid !important;
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                gap: 0.5rem !important;
-            }}
-
-            .st-key-mobile_info_row [data-testid="stColumn"] {{
-                width: auto !important;
-                min-width: 0 !important;
-                max-width: none !important;
-                flex: none !important;
-            }}
-
-            /* En móvil permanecen lado a lado y ocupan poca altura.
-               Las alturas se ajustan por separado para compensar la
-               diferencia de contenido, manteniendo una apariencia
-               visualmente equilibrada. */
-            .st-key-mobile_info_row .metric-card {{
-                transform: translateY(-4px);
-                height: 116px !important;
-                min-height: 116px !important;
-                max-height: 116px !important;
-                box-sizing: border-box !important;
-                margin-bottom: 0 !important;
-                padding: 0.68rem !important;
-                display: flex !important;
-                flex-direction: column !important;
-                justify-content: center !important;
-                overflow: hidden !important;
-            }}
-
-            .st-key-mobile_info_row .stock-warning-card {{
-                height: 112px !important;
-                min-height: 112px !important;
-                max-height: 112px !important;
-                box-sizing: border-box !important;
-                margin-bottom: 0 !important;
-                padding: 0.68rem !important;
-                display: flex !important;
-                flex-direction: column !important;
-                justify-content: center !important;
-                overflow: hidden !important;
-            }}
-
             .st-key-mobile_info_row .metric-title {{
                 font-size: 0.72rem !important;
                 letter-spacing: 0.04em !important;
@@ -1672,11 +1562,6 @@ st.markdown(
                 font-size: 0.58rem !important;
                 line-height: 1.08 !important;
                 margin-top: 0.12rem !important;
-            }}
-
-            .st-key-mobile_info_row .stock-warning-text {{
-                font-size: 0.58rem !important;
-                line-height: 1.05 !important;
             }}
 
             .buscador-hero {{
@@ -1777,16 +1662,6 @@ st.markdown(
                 font-size: 1.48rem;
             }}
 
-            /*
-            En teléfono el símbolo permanece oculto. Al tocar el título,
-            focus-within aplica el mismo comportamiento que hover en PC.
-            */
-            .hero-refresh {{
-                opacity: 0;
-                transform: translateX(-5px);
-                pointer-events: none;
-            }}
-
         }}
     </style>
     """,
@@ -1809,15 +1684,7 @@ if LOGO_PATH.is_file():
 st.markdown(
     f"""
     <section class="buscador-hero">
-        <div class="hero-title-row" tabindex="0">
-            <h1>Tienda de Magic UC</h1>
-            <a
-                class="hero-refresh"
-                href="?actualizar_catalogo=1"
-                title="Actualizar catálogo"
-                aria-label="Actualizar catálogo"
-            >⟳</a>
-        </div>
+        <h1>Tienda de Magic UC</h1>
         {logo_html}
     </section>
     """,
@@ -1826,38 +1693,39 @@ st.markdown(
 
 st.markdown(
     """
-    <div class="novedades-strip">Revisa las novedades y el stock de la tienda.</div>
+    <div class="novedades-strip">¡Revisa las novedades y el stock de la tienda Magic UC!</div>
     """,
     unsafe_allow_html=True,
 )
 
-# En teléfono estos dos avisos ocupan una sola fila.
 with st.container(key="mobile_info_row"):
-    columna_ck, columna_aviso = st.columns([1, 1], gap="small")
-
-    with columna_ck:
-        tarjeta_metrica(
-            "Valor CK tienda",
-            f"1 CK = ${VALOR_CK_CLP} CLP",
-            "Conversión fija utilizada por la tienda",
-            clase_extra="mobile-only mobile-ck-wrapper",
-        )
-
-    with columna_aviso:
-        tarjeta_advertencia(
-            "Consulta por WhatsApp la disponibilidad antes de pagar.",
-            clase_extra="mobile-only",
-        )
+    tarjeta_metrica(
+        "Valor CK tienda",
+        f"1 CK = ${VALOR_CK_CLP} CLP",
+        "Conversión fija utilizada por la tienda",
+        clase_extra="mobile-only mobile-ck-wrapper",
+    )
 
 
-# ============================================================
-# ACTUALIZACIÓN OCULTA DEL CATÁLOGO
-# ============================================================
-#
-# El enlace ↻ del título agrega un parámetro temporal a la dirección.
-# Al detectarlo se descartan los resultados anteriores y se vuelve a leer
-# el archivo de inventario. La caché se renueva si el contenido cambió.
-if st.query_params.get("actualizar_catalogo") == "1":
+def archivo_y_version_inventario() -> tuple[Path, tuple[str, int, int] | None]:
+    for archivo in (ARCHIVO_CSV, ARCHIVO_EXCEL):
+        try:
+            datos = archivo.stat()
+        except FileNotFoundError:
+            continue
+        return archivo, (archivo.name, datos.st_mtime_ns, datos.st_size)
+    return ARCHIVO_CSV, None
+
+
+@st.fragment(run_every="30s")
+def revisar_cambios_inventario() -> None:
+    _, version = archivo_y_version_inventario()
+    if version != st.session_state["version_inventario"]:
+        st.rerun(scope="app")
+
+
+archivo_inventario, version = archivo_y_version_inventario()
+if st.session_state.get("version_inventario") != version:
     for clave in (
         "resultados",
         "no_encontradas",
@@ -1866,31 +1734,158 @@ if st.query_params.get("actualizar_catalogo") == "1":
         "tipo_busqueda_realizada",
     ):
         st.session_state.pop(clave, None)
-
-    st.session_state["catalogo_recien_actualizado"] = True
-
-    # Evita que una recarga normal vuelva a limpiar la caché.
-    st.query_params.clear()
-    st.rerun()
-
-
-# ============================================================
-# CARGA DEL CATÁLOGO DE EXCEL
-# ============================================================
+st.session_state["version_inventario"] = version
 
 try:
-    inventario = cargar_inventario_compartido(ARCHIVO_INVENTARIO.read_bytes())
+    inventario = cargar_inventario_compartido(
+        archivo_inventario.read_bytes(),
+        archivo_inventario.suffix,
+    )
 except FileNotFoundError:
     inventario = []
     st.info("El catálogo estará disponible cuando la tienda publique su inventario.")
 except Exception as error:
     inventario = []
-    st.error(f"No se pudo leer el inventario de Excel: {error}")
+    st.error(f"No se pudo leer el archivo de inventario: {error}")
 else:
-    if st.session_state.pop("catalogo_recien_actualizado", False):
-        st.toast("Catálogo actualizado correctamente.")
-    if not inventario:
+    if inventario:
+        inventario = completar_inventario(inventario)
+    else:
         st.info("Por ahora no hay cartas en stock.")
+
+revisar_cambios_inventario()
+
+
+def render_tarjetas(resultados: list[dict[str, Any]], contexto: str) -> None:
+    for inicio_fila in range(0, len(resultados), 3):
+        columnas = st.columns(3)
+
+        for desplazamiento, (columna, fila) in enumerate(
+            zip(
+                columnas,
+                resultados[inicio_fila:inicio_fila + 3],
+            )
+        ):
+            indice_resultado = inicio_fila + desplazamiento
+
+            with columna:
+                with st.container(border=True):
+                    if fila.get("Imagen"):
+                        st.image(
+                            fila["Imagen"],
+                            use_container_width=True,
+                        )
+                    else:
+                        st.info("Imagen no disponible")
+
+                    st.markdown(f"### {fila['Carta']}")
+
+                    if fila.get("Tipo"):
+                        st.caption(fila["Tipo"])
+
+                    st.markdown(
+                        (
+                            '<div class="card-price-line">'
+                            'Precio CK USD: '
+                            '<span class="card-price-value">'
+                            f"{precio_usd_texto(fila['Precio CK'])}"
+                            "</span></div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                    st.markdown(
+                        (
+                            '<div class="card-price-line">'
+                            'Precio CLP: '
+                            '<span class="card-price-value">'
+                            f"{precio_clp_texto(fila['Precio CLP'])}"
+                            "</span></div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                    st.write(
+                        "**Cantidad disponible:** "
+                        f"{fila['Cantidad disponible']}"
+                    )
+                    for campo in ("Edición", "Acabado", "Idioma"):
+                        if fila.get(campo):
+                            st.write(f"**{campo}:** {fila[campo]}")
+
+                    if st.button(
+                        "Añadir al carro",
+                        key=(
+                            f"agregar_{contexto}_{fila['ID item']}_"
+                            f"{indice_resultado}"
+                        ),
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        agregar_al_carro(fila)
+                        st.rerun()
+
+
+COLORES_CATALOGO = {
+    "W": "Blanco", "U": "Azul", "B": "Negro", "R": "Rojo", "G": "Verde",
+}
+ACABADOS_CATALOGO = {
+    "nonfoil": "No foil", "foil": "Foil", "etched": "Etched", "": "Sin especificar",
+}
+
+
+def color_catalogo(carta: dict[str, Any]) -> str:
+    colores = carta.get("colores")
+    if colores is None:
+        return "Sin datos de color"
+    if len(colores) > 1:
+        return "Multicolor"
+    if not colores:
+        return "Incoloro"
+    return COLORES_CATALOGO[colores[0]]
+
+
+def render_catalogo(inventario: list[dict[str, Any]]) -> None:
+    if not inventario:
+        return
+
+    colores = ["Todos", *COLORES_CATALOGO.values(), "Multicolor", "Incoloro"]
+    acabados = sorted({carta["finish"] for carta in inventario}, key=lambda f: ACABADOS_CATALOGO.get(f, f))
+    columna_color, columna_acabado = st.columns(2)
+    with columna_color:
+        color = st.selectbox("Color", colores, key="catalogo_color")
+    with columna_acabado:
+        acabado = st.selectbox(
+            "Acabado",
+            [None, *acabados],
+            format_func=lambda f: "Todos" if f is None else ACABADOS_CATALOGO.get(f, f),
+            key="catalogo_acabado",
+        )
+
+    filtradas = sorted(
+        (
+            carta for carta in inventario
+            if (color == "Todos" or color_catalogo(carta) == color)
+            and (acabado is None or carta["finish"] == acabado)
+        ),
+        key=lambda carta: (carta["nombre"].casefold(), carta["set_name"], carta["finish"]),
+    )
+    if not filtradas:
+        st.info("No hay cartas que coincidan con estos filtros.")
+        return
+
+    total_copias = sum(carta["cantidad"] for carta in filtradas)
+    st.caption(f"Entradas: {len(filtradas)} · Copias disponibles: {total_copias}")
+    por_pagina = 24
+    total_paginas = (len(filtradas) + por_pagina - 1) // por_pagina
+    pagina = 1
+    if total_paginas > 1:
+        pagina = st.selectbox("Página", range(1, total_paginas + 1), key="catalogo_pagina")
+    inicio = (pagina - 1) * por_pagina
+    render_tarjetas(
+        [preparar_resultado(carta) for carta in filtradas[inicio:inicio + por_pagina]],
+        "catalogo",
+    )
 
 
 def render_carrito_completo() -> None:
@@ -2305,8 +2300,8 @@ st.markdown(
 
 vista_principal = selector_botones(
     "vista_principal",
-    ["Buscar cartas", "Lista de cartas", "CARRITO"],
-    "Buscar cartas",
+    ["Catálogo", "Buscar cartas", "Lista de cartas", "Carrito"],
+    "Catálogo",
 )
 
 # ============================================================
@@ -2316,7 +2311,10 @@ vista_principal = selector_botones(
 resultados_previsualizacion: list[dict[str, Any]] = []
 previsualizacion_activa = False
 
-if vista_principal == "Buscar cartas":
+if vista_principal == "Catálogo":
+    render_catalogo(inventario)
+
+elif vista_principal == "Buscar cartas":
     columna_buscador, columna_resumen = st.columns(
         [1.45, 1],
         gap="large",
@@ -2473,15 +2471,16 @@ if vista_principal == "Buscar cartas":
             "Conversión fija utilizada por la tienda",
             clase_extra="desktop-only",
         )
-        tarjeta_advertencia(
-            "Consulta por WhatsApp la disponibilidad antes de pagar.",
-            clase_extra="desktop-only",
-        )
 
         if previsualizacion_activa:
             tarjeta_metrica(
                 "Sugerencias",
                 str(len(resultados_previsualizacion)),
+                (
+                    "Se han encontrado cartas."
+                    if resultados_previsualizacion
+                    else "Prueba con otro nombre de carta."
+                ),
             )
 
 # ============================================================
@@ -2559,7 +2558,7 @@ elif vista_principal == "Lista de cartas":
 # RESULTADOS GUARDADOS / FIJOS
 # ============================================================
 
-if vista_principal != "CARRITO":
+if vista_principal in ("Buscar cartas", "Lista de cartas"):
     busqueda_guardada = "resultados" in st.session_state
 
     if previsualizacion_activa or busqueda_guardada:
@@ -2583,74 +2582,7 @@ if vista_principal != "CARRITO":
         )
 
         if resultados:
-            for inicio_fila in range(0, len(resultados), 3):
-                columnas = st.columns(3)
-
-                for desplazamiento, (columna, fila) in enumerate(
-                    zip(
-                        columnas,
-                        resultados[inicio_fila:inicio_fila + 3],
-                    )
-                ):
-                    indice_resultado = inicio_fila + desplazamiento
-
-                    with columna:
-                        with st.container(border=True):
-                            if fila.get("Imagen"):
-                                st.image(
-                                    fila["Imagen"],
-                                    use_container_width=True,
-                                )
-                            else:
-                                st.info("Imagen no disponible")
-
-                            st.markdown(f"### {fila['Carta']}")
-
-                            if fila.get("Tipo"):
-                                st.caption(fila["Tipo"])
-
-                            st.markdown(
-                                (
-                                    '<div class="card-price-line">'
-                                    'Precio CK USD: '
-                                    '<span class="card-price-value">'
-                                    f"{precio_usd_texto(fila['Precio CK'])}"
-                                    "</span></div>"
-                                ),
-                                unsafe_allow_html=True,
-                            )
-
-                            st.markdown(
-                                (
-                                    '<div class="card-price-line">'
-                                    'Precio CLP: '
-                                    '<span class="card-price-value">'
-                                    f"{precio_clp_texto(fila['Precio CLP'])}"
-                                    "</span></div>"
-                                ),
-                                unsafe_allow_html=True,
-                            )
-
-                            st.write(
-                                "**Cantidad disponible:** "
-                                f"{fila['Cantidad disponible']}"
-                            )
-                            for campo in ("Edición", "Acabado", "Idioma"):
-                                if fila.get(campo):
-                                    st.write(f"**{campo}:** {fila[campo]}")
-
-                            if st.button(
-                                "Añadir al carro",
-                                key=(
-                                    f"agregar_{fila['ID item']}_"
-                                    f"{indice_resultado}"
-                                ),
-                                type="primary",
-                                use_container_width=True,
-                            ):
-                                agregar_al_carro(fila)
-                                st.rerun()
-
+            render_tarjetas(resultados, "busqueda")
         else:
             st.info("No se encontraron coincidencias en el stock actual.")
 
@@ -2675,5 +2607,5 @@ if vista_principal != "CARRITO":
 # VISTA 3: CARRITO
 # ============================================================
 
-else:
+elif vista_principal == "Carrito":
     render_carrito_completo()
