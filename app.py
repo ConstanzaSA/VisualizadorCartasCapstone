@@ -473,7 +473,7 @@ def preparar_resultado(
     return {
         "ID item": identificador,
         "Imagen": carta.get("imagen_url", ""),
-        "Carta": nombre_solicitado or carta.get("nombre", ""),
+        "Carta": carta.get("nombre_completo") or nombre_solicitado or carta.get("nombre", ""),
         "Tipo": carta.get("tipo", ""),
         "Almacenamiento": almacenamiento_carta(carta),
         "Idioma": idioma_visible(carta.get("idioma", "")),
@@ -501,13 +501,14 @@ def buscar_lista_en_inventario(
         list(nombres_unicos.values()),
     )
 
-    resultados = [
-        preparar_resultado(
+    resultados_por_item = {}
+    for carta in coincidencias:
+        fila = preparar_resultado(
             carta,
             carta.get("nombre_buscado") or carta.get("nombre"),
         )
-        for carta in coincidencias
-    ]
+        resultados_por_item.setdefault(fila["ID item"], fila)
+    resultados = list(resultados_por_item.values())
 
     nombres_encontrados = {
         normalizar_nombre(

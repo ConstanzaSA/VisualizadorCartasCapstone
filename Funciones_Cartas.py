@@ -580,7 +580,7 @@ def _puntuar_coincidencia(consulta_normalizada, candidato_normalizado):
 
 def Buscar_sugerencias(inventario, consulta, limite=20):
     """
-    Busca sugerencias dentro del inventario cargado desde Moxfield.
+    Busca sugerencias dentro del inventario.
 
     Las sugerencias se agrupan por nombre visible, de manera que una carta
     disponible en varias ediciones no llena la lista con duplicados.
@@ -605,12 +605,13 @@ def Buscar_sugerencias(inventario, consulta, limite=20):
             if puntaje is None:
                 continue
 
-            clave = candidato_normalizado
+            nombre_visible = carta.get("nombre_completo") or nombre
+            clave = Normalizar_nombre(nombre_visible)
             actual = sugerencias_por_clave.get(clave)
 
             if actual is None or puntaje < actual["puntaje"]:
                 sugerencias_por_clave[clave] = {
-                    "nombre": nombre,
+                    "nombre": nombre_visible,
                     "nombre_normalizado": clave,
                     "imagen_url": carta.get("imagen_url", ""),
                     "tipo": carta.get("tipo", ""),

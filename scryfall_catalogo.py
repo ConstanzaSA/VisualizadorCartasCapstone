@@ -60,6 +60,7 @@ def completar_carta(carta: dict, impresion: dict) -> dict:
     return {
         **carta,
         "nombre": nombre,
+        "nombre_completo": impresion["name"] if len(caras) > 1 else "",
         "nombre_normalizado": Normalizar_nombre(nombre),
         "nombres_busqueda": sorted(nombres),
         "nombres_normalizados": sorted({Normalizar_nombre(n) for n in nombres}),
