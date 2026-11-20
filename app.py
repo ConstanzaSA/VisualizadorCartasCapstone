@@ -1909,7 +1909,7 @@ def render_carrito_completo() -> None:
 
     if not carro:
         st.info(
-            "El carro está vacío. Añade cartas :)."
+            "El carro está vacío. Añade cartas :)"
         )
     else:
         # --------------------------------------------------------
