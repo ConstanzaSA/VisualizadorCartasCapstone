@@ -1933,7 +1933,7 @@ def render_carrito_completo() -> None:
             ordenar_por = st.selectbox(
                 "Ordenar carro por",
                 [
-                    "Nombre",
+                    "Carta",
                     "Valor",
                     "Cantidad",
                     "Edición",
